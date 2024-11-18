@@ -1,0 +1,110 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <ESP32Servo.h>
+#include <WiFi.h>
+#include "ThingSpeak.h"
+
+const char* ssid = "Tony";   // your network SSID (name) 
+const char* password = "invalid password";   // your network password
+
+const char* server = "api.thingspeak.com";
+const unsigned long myChannelNumber = 2566289;
+const char * myWriteAPIKey = "TCQRQ93UE6K7R79H";
+
+WiFiClient client;
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // Define I2C address, columns and rows
+Servo myservo;
+
+int IR1 = 33;
+int IR2 = 35;
+int totalSlots = 4;  // Total number of parking slots
+int availableSlots = totalSlots;  // Track available slots
+int flag1 = 0;
+int flag2 = 0;
+
+unsigned long lastTime = 0;
+unsigned long timerDelay = 30000;
+
+void setup() {
+  Serial.begin(115200);
+  lcd.init();
+  lcd.backlight();
+  pinMode(IR1, INPUT);
+  pinMode(IR2, INPUT);
+  myservo.attach(13);
+  myservo.write(0);
+  WiFi.mode(WIFI_STA);
+  ThingSpeak.begin(client);
+}
+
+void loop() {
+  if ((millis() - lastTime) > timerDelay) {
+    if(WiFi.status() != WL_CONNECTED){
+      Serial.print("Attempting to connect");
+      while(WiFi.status() != WL_CONNECTED){
+        WiFi.begin(ssid, password); 
+        delay(5000);     
+      } 
+      Serial.println("\nConnected.");
+    }
+
+    ThingSpeak.setField(1, availableSlots); // Available Parking Slots
+
+    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+
+    if(x == 200){
+      Serial.println("Channel update successful.");
+    }
+    else{
+      Serial.println("Problem updating channel. HTTP error code " + String(x));
+    }
+
+    lastTime = millis();
+  }
+
+  if (digitalRead(IR1) == LOW && !flag1) {
+    if (availableSlots > 0) {
+      flag1 = 1;
+      if (!flag2) {
+        myservo.write(90);
+        delay(2000);
+        myservo.write(0);
+        availableSlots--;
+      }
+    } else {
+      lcd.setCursor(0, 0);
+      lcd.print("  SORRY :(  ");
+      lcd.setCursor(0, 1);
+      lcd.print(" Parking Full ");
+      delay(2000);
+      lcd.clear();
+    }
+  }
+
+  if (digitalRead(IR2) == LOW && !flag2) {
+    if (availableSlots < totalSlots) {
+      flag2 = 1;
+      if (!flag1) {
+        myservo.write(90);
+        delay(2000);
+        myservo.write(0);
+        availableSlots++;
+      }
+    }
+  }
+
+  if (flag1 && flag2) {
+    delay(1000);
+    myservo.write(0);
+    flag1 = 0;
+    flag2 = 0;
+  }
+
+  lcd.setCursor(0, 0);
+  lcd.print("  WELCOME!  ");
+  lcd.setCursor(0, 1);
+  lcd.print("Slot Left: ");
+  lcd.print(availableSlots);
+  delay(500);
+}
